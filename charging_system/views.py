@@ -6,8 +6,11 @@ from charging_system.services.car_service import (
     Start_Charging, End_Charging, Query_Charging_State,
     Modify_Amount, Modify_Mode
 )
-from charging_system.services.dispatch_service import E_chargingRequest
+from charging_system.services.dispatch_service import E_chargingRequest, handle_pile_fault
 from charging_system.services.bill_service import Request_Bill, Request_DetailedList
+from charging_system.services.pile_service import (
+    powerOn, powerOff, setParameters, Query_PileState, Query_QueueState
+)
 
 
 @csrf_exempt
@@ -103,6 +106,86 @@ def get_detailed_list(request):
     return JsonResponse({"success": True, "car_id": car_id, "details": result})
 
 
+@csrf_exempt
+def query_pile_state(request):
+    """管理大屏查询充电桩状态：?pile_id=XXX（可选，不传则查询所有）"""
+    pile_id = request.GET.get('pile_id', '').strip()
+    if pile_id:
+        result = Query_PileState(pile_id)
+    else:
+        result = Query_PileState()
+    return JsonResponse(result)
+
+
+@csrf_exempt
+def query_queue_state(request):
+    """管理大屏查询充电桩专属队列：?pile_id=XXX"""
+    pile_id = request.GET.get('pile_id', '').strip()
+    if not pile_id:
+        return JsonResponse({"success": False, "message": "充电桩ID不能为空"})
+    result = Query_QueueState(pile_id)
+    return JsonResponse(result)
+
+
+@csrf_exempt
+def simulate_fault(request):
+    """管理大屏模拟充电桩故障：?pile_id=XXX"""
+    pile_id = request.GET.get('pile_id', '').strip()
+    if not pile_id:
+        return JsonResponse({"success": False, "message": "充电桩ID不能为空"})
+    result = handle_pile_fault(pile_id)
+    return JsonResponse(result)
+
+
+@csrf_exempt
+def pile_power_on(request):
+    """管理大屏开启充电桩：?pile_id=XXX"""
+    pile_id = request.GET.get('pile_id', '').strip()
+    if not pile_id:
+        return JsonResponse({"success": False, "message": "充电桩ID不能为空"})
+    result = powerOn(pile_id)
+    return JsonResponse(result)
+
+
+@csrf_exempt
+def pile_power_off(request):
+    """管理大屏关闭充电桩：?pile_id=XXX"""
+    pile_id = request.GET.get('pile_id', '').strip()
+    if not pile_id:
+        return JsonResponse({"success": False, "message": "充电桩ID不能为空"})
+    result = powerOff(pile_id)
+    return JsonResponse(result)
+
+
+@csrf_exempt
+def set_pile_parameters(request):
+    """管理大屏在线调整电价参数"""
+    try:
+        peak_price = float(request.GET.get('peak_price', '0')) or None
+    except (ValueError, TypeError):
+        peak_price = None
+    try:
+        normal_price = float(request.GET.get('normal_price', '0')) or None
+    except (ValueError, TypeError):
+        normal_price = None
+    try:
+        valley_price = float(request.GET.get('valley_price', '0')) or None
+    except (ValueError, TypeError):
+        valley_price = None
+    try:
+        service_fee_rate = float(request.GET.get('service_fee_rate', '0')) or None
+    except (ValueError, TypeError):
+        service_fee_rate = None
+
+    result = setParameters(peak_price, normal_price, valley_price, service_fee_rate)
+    return JsonResponse(result)
+
+
 def client_page(request):
     """车主端极简操作页面"""
     return render(request, 'client.html')
+
+
+def admin_dashboard(request):
+    """管理大屏页面"""
+    return render(request, 'admin_dashboard.html')
