@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>智能充电桩 —— 管理大屏</title>
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Microsoft YaHei', 'PingFang SC', sans-serif;
+            background: linear-gradient(135deg, #020617 0%, #0f172a 100%);
+            min-height: 100vh; color: #e2e8f0; padding: 30px 20px;
+        }
+        h1 { text-align: center; font-size: 32px; margin-bottom: 8px; color: #38bdf8; }
+        .subtitle { text-align: center; font-size: 14px; color: #94a3b8; margin-bottom: 32px; }
+
+        .container { max-width: 1200px; margin: 0 auto; }
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+        .card {
+            background: #1e293b; border: 1px solid #334155;
+            border-radius: 16px; padding: 28px; box-shadow: 0 4px 24px rgba(0,0,0,.35);
+        }
+        .card h2 { font-size: 19px; margin-bottom: 20px; color: #cbd5e1; border-bottom: 1px solid #334155; padding-bottom: 12px; }
+
+        table { width: 100%; border-collapse: collapse; font-size: 14px; }
+        th, td { padding: 12px 10px; text-align: center; border-bottom: 1px solid #334155; }
+        th { background: #0f172a; color: #94a3b8; font-weight: 600; }
+        td { color: #e2e8f0; }
+
+        .badge {
+            display: inline-block; padding: 4px 12px; border-radius: 20px;
+            font-size: 12px; font-weight: 600;
+        }
+        .badge-idle { background: #22c55e; color: #000; }
+        .badge-charging { background: #0ea5e9; color: #fff; }
+        .badge-fault { background: #ef4444; color: #fff; }
+
+        .btn-fault {
+            padding: 6px 14px; border-radius: 6px; border: none;
+            font-size: 12px; font-weight: 600; cursor: pointer;
+            background: #ef4444; color: #fff;
+            transition: all .2s;
+        }
+        .btn-fault:hover { background: #dc2626; }
+        .btn-fault:active { transform: scale(0.95); }
+        .btn-recover {
+            background: #22c55e; color: #000;
+        }
+        .btn-recover:hover { background: #16a34a; }
+
+        .queue-item {
+            display: inline-block;
+            padding: 4px 8px;
+            background: #0f172a;
+            border-radius: 4px;
+            margin: 2px;
+            font-size: 12px;
+            color: #94a3b8;
+            border: 1px solid #334155;
+        }
+        .queue-item.current {
+            background: #0ea5e9;
+            color: #fff;
+            border-color: #0ea5e9;
+        }
+
+        .empty { color: #64748b; font-style: italic; }
+        .mode-f { color: #ef4444; font-weight: 600; }
+        .mode-t { color: #22c55e; font-weight: 600; }
+
+        .metrics { font-size: 11px; color: #64748b; margin-top: 4px; }
+        .metrics span { margin-right: 12px; }
+
+        .toast {
+            position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
+            background: #ef4444; color: #fff; padding: 12px 28px; border-radius: 8px;
+            font-size: 14px; z-index: 1000; display: none; white-space: nowrap;
+            box-shadow: 0 4px 12px rgba(0,0,0,.4);
+        }
+        .toast.show { display: block; }
+        .toast.ok { background: #22c55e; }
+
+        .nav-links { text-align: center; margin-bottom: 20px; }
+        .nav-links a {
+            display: inline-block;
+            padding: 8px 20px;
+            background: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 8px;
+            color: #94a3b8;
+            text-decoration: none;
+            margin: 0 8px;
+            transition: all .2s;
+        }
+        .nav-links a:hover, .nav-links a.active {
+            background: #0ea5e9;
+            color: #fff;
+            border-color: #0ea5e9;
+        }
+    </style>
+</head>
+<body>
+
+<div class="toast" id="toast"></div>
+
+<div class="nav-links">
+    <a href="/">车主端</a>
+    <a href="/dashboard/" class="active">管理大屏</a>
+</div>
+
+<h1>⚡ 智能充电桩调度系统</h1>
+<p class="subtitle">管理大屏 —— 实时监控与故障模拟</p>
+
+<div class="container">
+    <div class="grid">
+        <!-- 表格①：充电桩资产看板 -->
+        <div class="card">
+            <h2>📊 充电桩资产看板</h2>
+            <table id="pileTable">
+                <thead>
+                    <tr>
+                        <th>充电桩ID</th>
+                        <th>类型</th>
+                        <th>状态</th>
+                        <th>当前车辆</th>
+                        <th>累计充电量</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+
+        <!-- 表格②：实时排队详情 -->
+        <div class="card">
+            <h2>📋 实时排队详情</h2>
+            <table id="queueTable">
+                <thead>
+                    <tr>
+                        <th>充电桩ID</th>
+                        <th>类型</th>
+                        <th>当前充电</th>
+                        <th>排队车辆（最多4辆）</th>
+                        <th>队列长度</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<script>
+    let pollingTimer = null;
+
+    function apiUrl(path) {
+        return '/api/' + path;
+    }
+
+    function toast(msg, ok) {
+        var t = document.getElementById('toast');
+        t.textContent = msg;
+        t.className = 'toast show' + (ok ? ' ok' : '');
+        setTimeout(function(){ t.className = 'toast'; }, 3000);
+    }
+
+    function renderPileTable(data) {
+        var tbody = document.getElementById('pileTable').getElementsByTagName('tbody')[0];
+        tbody.innerHTML = '';
+
+        if (!data.success || !data.piles || data.piles.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="6" class="empty">暂无充电桩数据</td></tr>';
+            return;
+        }
+
+        data.piles.forEach(function(pile) {
+            var modeText = pile.mode === 'F' ? '快充' : '慢充';
+            var modeClass = pile.mode === 'F' ? 'mode-f' : 'mode-t';
+            var statusClass = pile.status === 'IDLE' ? 'badge-idle' : (pile.status === 'CHARGING' ? 'badge-charging' : 'badge-fault');
+            var statusText = pile.status === 'IDLE' ? '空闲' : (pile.status === 'CHARGING' ? '充电中' : '故障');
+            var currentCar = pile.current_car ? pile.current_car.car_id : '--';
+            var btnClass = pile.status === 'FAULT' ? 'btn-recover' : 'btn-fault';
+            var btnText = pile.status === 'FAULT' ? '恢复' : '模拟故障';
+            var btnAction = pile.status === 'FAULT' ? 'recover' : 'fault';
+
+            var row = document.createElement('tr');
+            row.innerHTML = `
+                <td style="font-weight:600;color:#38bdf8;">${pile.pile_id}</td>
+                <td><span class="${modeClass}">${modeText}</span></td>
+                <td><span class="badge ${statusClass}">${statusText}</span></td>
+                <td>${currentCar}</td>
+                <td>${pile.metrics.total_charge_amount || 0}度</td>
+                <td><button class="btn-fault ${btnClass}" onclick="handlePileAction('${pile.pile_id}', '${btnAction}')">${btnText}</button></td>
+            `;
+            tbody.appendChild(row);
+        });
+    }
+
+    function renderQueueTable(data) {
+        var tbody = document.getElementById('queueTable').getElementsByTagName('tbody')[0];
+        tbody.innerHTML = '';
+
+        if (!data.success || !data.piles || data.piles.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="5" class="empty">暂无队列数据</td></tr>';
+            return;
+        }
+
+        data.piles.forEach(function(pile) {
+            var modeText = pile.mode === 'F' ? '快充' : '慢充';
+            var modeClass = pile.mode === 'F' ? 'mode-f' : 'mode-t';
+            var currentCar = pile.current_car ? pile.current_car.car_id : '--';
+
+            var queueHtml = '';
+            if (pile.metrics && pile.metrics.queue_length > 0) {
+                queueHtml = '<div style="min-height:28px;">';
+                for (var i = 1; i <= 4; i++) {
+                    queueHtml += `<div class="queue-item">空位 ${i}</div>`;
+                }
+                queueHtml += '</div>';
+            } else {
+                queueHtml = '<span class="empty">无排队车辆</span>';
+            }
+
+            var row = document.createElement('tr');
+            row.innerHTML = `
+                <td style="font-weight:600;color:#38bdf8;">${pile.pile_id}</td>
+                <td><span class="${modeClass}">${modeText}</span></td>
+                <td>${currentCar}</td>
+                <td id="queue-${pile.pile_id}">${queueHtml}</td>
+                <td>${pile.metrics ? pile.metrics.queue_length : 0}/4</td>
+            `;
+            tbody.appendChild(row);
+        });
+
+        data.piles.forEach(function(pile) {
+            loadQueueDetail(pile.pile_id);
+        });
+    }
+
+    function loadQueueDetail(pile_id) {
+        axios.get(apiUrl('query_queue_state'), { params: { pile_id: pile_id } })
+            .then(function(r) {
+                var d = r.data;
+                if (!d.success) return;
+
+                var container = document.getElementById('queue-' + pile_id);
+                if (!container) return;
+
+                var html = '';
+                if (d.current_car) {
+                    html += `<div class="queue-item current">🚗 ${d.current_car.car_id}</div>`;
+                }
+
+                if (d.queue_list && d.queue_list.length > 0) {
+                    d.queue_list.forEach(function(car) {
+                        html += `<div class="queue-item">${car.car_id}</div>`;
+                    });
+                }
+
+                var remaining = 4 - (d.current_car ? 1 : 0) - (d.queue_list ? d.queue_list.length : 0);
+                for (var i = 0; i < remaining; i++) {
+                    html += `<div class="queue-item" style="opacity:0.3;">空位</div>`;
+                }
+
+                if (!d.current_car && (!d.queue_list || d.queue_list.length === 0)) {
+                    html = '<span class="empty">无排队车辆</span>';
+                }
+
+                container.innerHTML = html;
+            })
+            .catch(function(e) { console.error(e); });
+    }
+
+    function handlePileAction(pile_id, action) {
+        var url = action === 'fault' ? 'simulate_fault' : 'pile_power_on';
+        axios.get(apiUrl(url), { params: { pile_id: pile_id } })
+            .then(function(r) {
+                var d = r.data;
+                if (d.success) {
+                    toast((action === 'fault' ? '故障模拟成功！' : '恢复成功！') + d.message, true);
+                } else {
+                    toast(d.message || '操作失败', false);
+                }
+                loadAllData();
+            })
+            .catch(function(e) { toast('网络错误', false); });
+    }
+
+    function loadAllData() {
+        axios.get(apiUrl('query_pile_state'))
+            .then(function(r) {
+                renderPileTable(r.data);
+                renderQueueTable(r.data);
+            })
+            .catch(function(e) { console.error(e); });
+    }
+
+    function startPolling() {
+        if (pollingTimer) clearInterval(pollingTimer);
+        pollingTimer = setInterval(loadAllData, 1000);
+        loadAllData();
+    }
+
+    startPolling();
+</script>
+</body>
+</html>
