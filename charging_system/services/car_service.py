@@ -129,6 +129,175 @@ def End_Charging(car_id: str) -> int:
         return 0
 
 
+def Modify_Amount(car_id: str, new_amount: float) -> dict:
+    """
+    【组员A核心接口】：支持车主中途修改目标充电量。
+    若新目标 <= 已充度数，自动触发充电结束与结算。
+    """
+    if new_amount <= 0:
+        return {"success": False, "message": "目标充电量必须大于0"}
+
+    try:
+        with transaction.atomic():
+            try:
+                car = CarState.objects.select_for_update().get(car_id=car_id)
+            except CarState.DoesNotExist:
+                return {"success": False, "message": f"车辆 {car_id} 不存在"}
+
+            if car.status not in ('CHARGING', 'QUEUEING'):
+                return {"success": False, "message": f"车辆状态 {car.status} 不允许修改电量"}
+
+            if new_amount <= car.charged_amount:
+                if car.status == 'CHARGING':
+                    now_time = timezone.now()
+                    pile = car.pile
+                    if car.last_update_time and pile:
+                        pile = ChargePile.objects.select_for_update().get(pile_id=pile.pile_id)
+                        amt, c_fee, s_fee = calculate_phase_fee(car.last_update_time, now_time, car.mode)
+                        actual_amt = min(amt, car.request_amount - car.charged_amount)
+                        if actual_amt > 0:
+                            ratio = actual_amt / amt if amt > 0 else 1.0
+                            duration_minutes = (now_time - car.last_update_time).total_seconds() * TIME_SCALE / 60
+                            BillRecord.objects.create(
+                                car_id=car_id, pile_id=pile.pile_id, charge_amount=actual_amt,
+                                start_time=car.last_update_time, end_time=now_time,
+                                charge_duration_minutes=duration_minutes,
+                                charge_fee=c_fee * ratio, service_fee=s_fee * ratio,
+                                total_fee=(c_fee + s_fee) * ratio
+                            )
+                            car.charged_amount += actual_amt
+                            car.total_fee += (c_fee + s_fee) * ratio
+                            pile.total_charge_amount += actual_amt
+                        if car.start_time:
+                            dur = (now_time - car.start_time).total_seconds() * TIME_SCALE / 60
+                            pile.total_charge_duration_minutes += dur
+                        pile.total_charge_times += 1
+                        pile.current_car_id = None
+                        pile.status = 'IDLE'
+                        pile.save()
+
+                    car.request_amount = new_amount
+                    car.status = 'FINISHED'
+                    car.end_time = now_time
+                    car.save()
+
+                    if pile:
+                        from charging_system.services.dispatch_service import time_slice_schedule
+                        time_slice_schedule(pile.pile_id)
+
+                    return {"success": True, "action": "FINISHED", "message": "新目标电量不高于已充度数，充电自动结束"}
+                else:
+                    car.request_amount = new_amount
+                    car.status = 'FINISHED'
+                    car.end_time = timezone.now()
+                    car.pile = None
+                    car.queue_index = 0
+                    car.save()
+                    return {"success": True, "action": "FINISHED", "message": "排队中车辆下调电量至已充度数以下，请求自动取消"}
+
+            old_amount = car.request_amount
+            car.request_amount = new_amount
+            car.save()
+            return {
+                "success": True,
+                "action": "UPDATED",
+                "car_id": car_id,
+                "old_amount": round(old_amount, 2),
+                "new_amount": round(new_amount, 2),
+                "message": "目标充电量修改成功"
+            }
+    except Exception as e:
+        return {"success": False, "message": f"修改充电量失败: {str(e)}"}
+
+
+def Modify_Mode(car_id: str, new_mode: str) -> dict:
+    """
+    【组员A核心接口】：支持车主中途切换快慢充模式。
+    正在充电的车辆会先结算当前片段，释放旧桩，再重新调度至新模式充电桩。
+    """
+    new_mode = new_mode.upper()
+    if new_mode not in ('F', 'T'):
+        return {"success": False, "message": "充电模式必须为 F(快充) 或 T(慢充)"}
+
+    try:
+        with transaction.atomic():
+            try:
+                car = CarState.objects.select_for_update().get(car_id=car_id)
+            except CarState.DoesNotExist:
+                return {"success": False, "message": f"车辆 {car_id} 不存在"}
+
+            if car.status not in ('CHARGING', 'QUEUEING'):
+                return {"success": False, "message": f"车辆状态 {car.status} 不允许切换模式"}
+
+            if car.mode == new_mode:
+                return {"success": True, "action": "NO_CHANGE", "message": f"当前已是{'快充' if new_mode == 'F' else '慢充'}模式"}
+
+            old_mode = car.mode
+            old_pile_id = car.pile.pile_id if car.pile else None
+
+            if car.status == 'CHARGING':
+                now_time = timezone.now()
+                pile = car.pile
+                if car.last_update_time and pile:
+                    pile = ChargePile.objects.select_for_update().get(pile_id=pile.pile_id)
+                    amt, c_fee, s_fee = calculate_phase_fee(car.last_update_time, now_time, car.mode)
+                    actual_amt = min(amt, car.request_amount - car.charged_amount)
+                    if actual_amt > 0:
+                        ratio = actual_amt / amt if amt > 0 else 1.0
+                        duration_minutes = (now_time - car.last_update_time).total_seconds() * TIME_SCALE / 60
+                        BillRecord.objects.create(
+                            car_id=car_id, pile_id=pile.pile_id, charge_amount=actual_amt,
+                            start_time=car.last_update_time, end_time=now_time,
+                            charge_duration_minutes=duration_minutes,
+                            charge_fee=c_fee * ratio, service_fee=s_fee * ratio,
+                            total_fee=(c_fee + s_fee) * ratio
+                        )
+                        car.charged_amount += actual_amt
+                        car.total_fee += (c_fee + s_fee) * ratio
+                        pile.total_charge_amount += actual_amt
+                    if car.start_time:
+                        dur = (now_time - car.start_time).total_seconds() * TIME_SCALE / 60
+                        pile.total_charge_duration_minutes += dur
+                    pile.total_charge_times += 1
+                    pile.current_car_id = None
+                    pile.status = 'IDLE'
+                    pile.save()
+
+                car.pile = None
+                car.queue_index = 0
+                car.mode = new_mode
+                car.status = 'WAITING'
+                car.last_update_time = None
+                car.start_time = None
+                car.save()
+
+                if old_pile_id:
+                    from charging_system.services.dispatch_service import time_slice_schedule
+                    time_slice_schedule(old_pile_id)
+
+            else:
+                car.pile = None
+                car.queue_index = 0
+                car.mode = new_mode
+                car.status = 'WAITING'
+                car.save()
+
+            from charging_system.services.dispatch_service import priority_schedule
+            reschedule_result = priority_schedule(car_id)
+
+            return {
+                "success": True,
+                "action": "MODE_SWITCHED",
+                "car_id": car_id,
+                "old_mode": old_mode,
+                "new_mode": new_mode,
+                "reschedule": reschedule_result,
+                "message": f"模式已从{'快充' if old_mode == 'F' else '慢充'}切换至{'快充' if new_mode == 'F' else '慢充'}，已重新调度"
+            }
+    except Exception as e:
+        return {"success": False, "message": f"切换充电模式失败: {str(e)}"}
+
+
 def Query_Charging_State(car_id: str) -> dict:
     """
     【组员B负责接口】：车主客户端实时轮询查询当前车辆的充电状态、已充度数、实时产生费用。

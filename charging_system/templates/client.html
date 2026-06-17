@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>智能充电桩 —— 车主端</title>
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Microsoft YaHei', 'PingFang SC', sans-serif;
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+            min-height: 100vh; color: #e2e8f0; padding: 30px 20px;
+        }
+        h1 { text-align: center; font-size: 28px; margin-bottom: 6px; color: #38bdf8; }
+        .subtitle { text-align: center; font-size: 13px; color: #94a3b8; margin-bottom: 28px; }
+
+        .container { max-width: 680px; margin: 0 auto; }
+
+        .card {
+            background: #1e293b; border: 1px solid #334155;
+            border-radius: 14px; padding: 24px; margin-bottom: 22px;
+            box-shadow: 0 4px 24px rgba(0,0,0,.35);
+        }
+        .card h2 { font-size: 17px; margin-bottom: 16px; color: #cbd5e1; border-bottom: 1px solid #334155; padding-bottom: 10px; }
+
+        .form-row { display: flex; gap: 12px; margin-bottom: 14px; flex-wrap: wrap; align-items: flex-end; }
+        .form-group { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 130px; }
+        .form-group label { font-size: 12px; color: #94a3b8; }
+        .form-group input, .form-group select {
+            padding: 10px 12px; border-radius: 8px; border: 1px solid #475569;
+            background: #0f172a; color: #e2e8f0; font-size: 14px; outline: none;
+            transition: border-color .2s;
+        }
+        .form-group input:focus, .form-group select:focus { border-color: #38bdf8; }
+
+        .btn-row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 4px; }
+        button {
+            padding: 10px 20px; border-radius: 8px; border: none; font-size: 14px;
+            font-weight: 600; cursor: pointer; transition: all .2s; color: #fff;
+        }
+        button:active { transform: scale(0.96); }
+        .btn-primary { background: #0ea5e9; }
+        .btn-primary:hover { background: #0284c7; }
+        .btn-warn { background: #f59e0b; }
+        .btn-warn:hover { background: #d97706; }
+        .btn-danger { background: #ef4444; }
+        .btn-danger:hover { background: #dc2626; }
+        .btn-gray { background: #475569; }
+        .btn-gray:hover { background: #64748b; }
+
+        .status-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+        .status-item {
+            background: #0f172a; border-radius: 8px; padding: 14px;
+            border: 1px solid #334155; text-align: center;
+        }
+        .status-item .label { font-size: 11px; color: #64748b; margin-bottom: 4px; }
+        .status-item .value { font-size: 22px; font-weight: 700; color: #38bdf8; }
+        .status-item .value.warn { color: #f59e0b; }
+        .status-item .value.done { color: #22c55e; }
+        .status-item .value.fault { color: #ef4444; }
+
+        .badge {
+            display: inline-block; padding: 3px 10px; border-radius: 20px;
+            font-size: 12px; font-weight: 600;
+        }
+        .badge-charging { background: #0ea5e9; color: #fff; }
+        .badge-waiting { background: #f59e0b; color: #000; }
+        .badge-finished { background: #22c55e; color: #000; }
+        .badge-queueing { background: #a855f7; color: #fff; }
+        .badge-fault { background: #ef4444; color: #fff; }
+
+        .log-area {
+            background: #0f172a; border-radius: 8px; padding: 14px;
+            min-height: 56px; font-size: 13px; color: #94a3b8;
+            border: 1px solid #334155; max-height: 120px; overflow-y: auto;
+            font-family: 'Consolas', monospace;
+        }
+
+        /* 弹窗 */
+        .overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,.7); z-index: 999; justify-content: center; align-items: center; }
+        .overlay.show { display: flex; }
+        .popup {
+            background: #1e293b; border: 1px solid #334155; border-radius: 16px;
+            padding: 30px; max-width: 500px; width: 90%; box-shadow: 0 8px 40px rgba(0,0,0,.6);
+        }
+        .popup h2 { color: #22c55e; margin-bottom: 16px; }
+        .popup table { width: 100%; border-collapse: collapse; font-size: 14px; margin-bottom: 18px; }
+        .popup table td { padding: 8px 6px; border-bottom: 1px solid #334155; }
+        .popup table td:last-child { text-align: right; font-weight: 600; color: #38bdf8; }
+        .popup .close-btn { width: 100%; }
+
+        .toast {
+            position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
+            background: #ef4444; color: #fff; padding: 10px 24px; border-radius: 8px;
+            font-size: 14px; z-index: 1000; display: none; white-space: nowrap;
+        }
+        .toast.show { display: block; }
+        .toast.ok { background: #22c55e; }
+    </style>
+</head>
+<body>
+
+<div class="toast" id="toast"></div>
+
+<div class="overlay" id="overlay">
+    <div class="popup">
+        <h2>📋 充电费用详单</h2>
+        <div id="billContent"></div>
+        <button class="close-btn btn-primary" onclick="closeBill()">关闭</button>
+    </div>
+</div>
+
+<h1>&#x26A1; 智能充电桩调度系统</h1>
+<p class="subtitle">车主端 —— 实时充电状态监控与操作面板</p>
+
+<div class="container">
+    <!-- 操作卡片 -->
+    <div class="card">
+        <h2>&#x1F69A; 充电操作</h2>
+        <div class="form-row">
+            <div class="form-group">
+                <label>车牌号</label>
+                <input type="text" id="carId" placeholder="例如：京A12345" />
+            </div>
+            <div class="form-group">
+                <label>充电模式</label>
+                <select id="mode">
+                    <option value="F">快充 (F)</option>
+                    <option value="T" selected>慢充 (T)</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>目标电量 (度)</label>
+                <input type="number" id="amount" placeholder="例如：50" value="50" min="1" step="1" />
+            </div>
+        </div>
+        <div class="btn-row">
+            <button class="btn-primary" onclick="submitRequest()">&#x1F4E4; 提交充电请求</button>
+            <button class="btn-warn" onclick="modifyAmount()">&#x270F; 修改目标电量</button>
+            <button class="btn-warn" onclick="modifyMode()">&#x1F504; 切换快/慢充</button>
+            <button class="btn-danger" onclick="cancelCharge()">&#x274C; 取消充电</button>
+        </div>
+        <div class="btn-row" style="margin-top:10px;">
+            <button class="btn-gray" onclick="showBill()">&#x1F4C4; 查看账单</button>
+            <button class="btn-gray" onclick="showDetail()">&#x1F4CB; 查看详单</button>
+        </div>
+    </div>
+
+    <!-- 状态卡片 -->
+    <div class="card">
+        <h2>&#x1F4CA; 实时充电状态 <span style="font-size:11px;color:#64748b;">(每2秒自动刷新)</span></h2>
+        <div class="status-grid">
+            <div class="status-item">
+                <div class="label">车辆状态</div>
+                <div class="value" id="stCarStatus"><span class="badge badge-waiting">--</span></div>
+            </div>
+            <div class="status-item">
+                <div class="label">所属充电桩</div>
+                <div class="value" id="stPileId">--</div>
+            </div>
+            <div class="status-item">
+                <div class="label">已充电量 (度)</div>
+                <div class="value" id="stCharged">0.00</div>
+            </div>
+            <div class="status-item">
+                <div class="label">剩余电量 (度)</div>
+                <div class="value" id="stRemaining">0.00</div>
+            </div>
+            <div class="status-item">
+                <div class="label">当前费用 (元)</div>
+                <div class="value" id="stFee">0.00</div>
+            </div>
+            <div class="status-item">
+                <div class="label">充电时长 (分钟)</div>
+                <div class="value" id="stDuration">0.0</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 日志卡片 -->
+    <div class="card">
+        <h2>&#x1F4DD; 操作日志</h2>
+        <div class="log-area" id="logArea">等待操作...</div>
+    </div>
+</div>
+
+<script>
+    let pollingTimer = null;
+    let lastStatus = null;
+
+    function apiUrl(path) {
+        return '/api/' + path;
+    }
+
+    function getCarId() {
+        return document.getElementById('carId').value.trim();
+    }
+
+    function toast(msg, ok) {
+        var t = document.getElementById('toast');
+        t.textContent = msg;
+        t.className = 'toast show' + (ok ? ' ok' : '');
+        setTimeout(function(){ t.className = 'toast'; }, 2500);
+    }
+
+    function log(msg) {
+        var area = document.getElementById('logArea');
+        var time = new Date().toLocaleTimeString();
+        area.innerHTML = '[' + time + '] ' + msg + '\n' + area.innerHTML;
+        if (area.children.length === 0) {
+            var lines = area.innerHTML.split('\n');
+            if (lines.length > 30) area.innerHTML = lines.slice(0, 30).join('\n');
+        }
+    }
+
+    function renderStatus(data) {
+        if (!data.success) {
+            document.getElementById('stCarStatus').innerHTML = '<span class="badge badge-fault">查无此车</span>';
+            document.getElementById('stPileId').textContent = '--';
+            document.getElementById('stCharged').textContent = '0.00';
+            document.getElementById('stRemaining').textContent = '0.00';
+            document.getElementById('stFee').textContent = '0.00';
+            document.getElementById('stDuration').textContent = '0.0';
+            return;
+        }
+
+        var status = data.car_state;
+        var badgeHtml = '';
+        var cls = '';
+        switch (status) {
+            case 'WAITING': badgeHtml = '等候区排队中'; cls = 'badge-waiting'; break;
+            case 'QUEUEING': badgeHtml = '专属队列排队中'; cls = 'badge-queueing'; break;
+            case 'CHARGING': badgeHtml = '正在充电'; cls = 'badge-charging'; break;
+            case 'FINISHED': badgeHtml = '充电完成'; cls = 'badge-finished'; break;
+            case 'FAULT_WAITING': badgeHtml = '故障等待重调度'; cls = 'badge-fault'; break;
+            default: badgeHtml = status; cls = 'badge-fault';
+        }
+        document.getElementById('stCarStatus').innerHTML = '<span class="badge ' + cls + '">' + badgeHtml + '</span>';
+        document.getElementById('stPileId').textContent = data.pile_id || '--';
+        document.getElementById('stCharged').textContent = (data.charged_amount || 0).toFixed(2);
+        document.getElementById('stRemaining').textContent = (data.remaining_amount || 0).toFixed(2);
+        document.getElementById('stFee').textContent = (data.current_fee || 0).toFixed(2);
+        document.getElementById('stDuration').textContent = (data.charge_duration_minutes || 0).toFixed(1);
+
+        // 充电完成自动弹窗
+        if (status === 'FINISHED' && lastStatus && lastStatus !== 'FINISHED') {
+            showBill();
+        }
+        lastStatus = status;
+    }
+
+    function startPolling() {
+        if (pollingTimer) clearInterval(pollingTimer);
+        pollingTimer = setInterval(queryState, 2000);
+        queryState();
+    }
+
+    function queryState() {
+        var cid = getCarId();
+        if (!cid) return;
+        axios.get(apiUrl('query_state'), { params: { car_id: cid } })
+            .then(function(r){ renderStatus(r.data); })
+            .catch(function(e){ console.error(e); });
+    }
+
+    function submitRequest() {
+        var cid = getCarId();
+        if (!cid) { toast('请输入车牌号', false); return; }
+        var mode = document.getElementById('mode').value;
+        var amount = document.getElementById('amount').value;
+
+        axios.get(apiUrl('charging_request'), { params: { car_id: cid, mode: mode, request_amount: amount } })
+            .then(function(r){
+                var d = r.data;
+                log((d.success ? '✅' : '❌') + ' 提交请求: ' + (d.message || d.action || JSON.stringify(d)));
+                if (d.success) { toast('请求成功: ' + (d.action || ''), true); startPolling(); }
+                else { toast(d.message || '请求失败', false); }
+            })
+            .catch(function(e){ toast('网络错误', false); console.error(e); });
+    }
+
+    function modifyAmount() {
+        var cid = getCarId();
+        if (!cid) { toast('请输入车牌号', false); return; }
+        var newAmt = prompt('请输入新的目标充电量 (度):', '');
+        if (!newAmt || isNaN(parseFloat(newAmt)) || parseFloat(newAmt) <= 0) {
+            toast('请输入有效的正数', false); return;
+        }
+
+        axios.get(apiUrl('modify_amount'), { params: { car_id: cid, new_amount: newAmt } })
+            .then(function(r){
+                var d = r.data;
+                log((d.success ? '✅' : '❌') + ' 修改电量: ' + (d.message || ''));
+                toast(d.message || '', d.success);
+                queryState();
+            })
+            .catch(function(e){ toast('网络错误', false); });
+    }
+
+    function modifyMode() {
+        var cid = getCarId();
+        if (!cid) { toast('请输入车牌号', false); return; }
+        var curMode = document.getElementById('mode').value;
+        var newMode = curMode === 'F' ? 'T' : 'F';
+        var modeName = newMode === 'F' ? '快充(F)' : '慢充(T)';
+        if (!confirm('确定要切换到 ' + modeName + ' 模式吗？')) return;
+
+        axios.get(apiUrl('modify_mode'), { params: { car_id: cid, new_mode: newMode } })
+            .then(function(r){
+                var d = r.data;
+                log((d.success ? '✅' : '❌') + ' 切换模式: ' + (d.message || ''));
+                toast(d.message || '', d.success);
+                if (d.success) { document.getElementById('mode').value = newMode; }
+                queryState();
+            })
+            .catch(function(e){ toast('网络错误', false); });
+    }
+
+    function cancelCharge() {
+        var cid = getCarId();
+        if (!cid) { toast('请输入车牌号', false); return; }
+        if (!confirm('确定要取消/结束充电吗？')) return;
+
+        axios.get(apiUrl('cancel_charging'), { params: { car_id: cid } })
+            .then(function(r){
+                var d = r.data;
+                log((d.success ? '✅' : '❌') + ' 取消充电: ' + (d.message || ''));
+                toast(d.message || '', d.success);
+                if (d.success && d.bill) { renderBill(d.bill); }
+                queryState();
+            })
+            .catch(function(e){ toast('网络错误', false); });
+    }
+
+    function showBill() {
+        var cid = getCarId();
+        if (!cid) { toast('请输入车牌号', false); return; }
+        axios.get(apiUrl('get_bill'), { params: { car_id: cid } })
+            .then(function(r){
+                if (r.data.success) { renderBill(r.data); }
+                else { toast(r.data.message || '暂无账单', false); }
+            })
+            .catch(function(e){ toast('网络错误', false); });
+    }
+
+    function showDetail() {
+        var cid = getCarId();
+        if (!cid) { toast('请输入车牌号', false); return; }
+        axios.get(apiUrl('get_detailed_list'), { params: { car_id: cid } })
+            .then(function(r){
+                var d = r.data;
+                if (!d.success || !d.details || d.details.length === 0) {
+                    toast('暂无详单记录', false); return;
+                }
+                var html = '<table><tr style="color:#94a3b8;font-size:12px;"><td>#</td><td>桩</td><td>度数</td><td>时长(min)</td><td>费用</td></tr>';
+                d.details.forEach(function(item){
+                    html += '<tr><td>' + item.detail_index + '</td><td>' + item.pile_id + '</td><td>' + item.charge_amount + '</td><td>' + item.duration_minutes + '</td><td>' + item.total_fee + '元</td></tr>';
+                });
+                html += '</table>';
+                document.getElementById('billContent').innerHTML = '<h2>&#x1F4CB; 充电详单 (' + d.car_id + ')</h2>' + html;
+                document.getElementById('overlay').classList.add('show');
+            })
+            .catch(function(e){ toast('网络错误', false); });
+    }
+
+    function renderBill(data) {
+        var html = '<table>';
+        html += '<tr><td>车辆</td><td>' + (data.car_id || '--') + '</td></tr>';
+        html += '<tr><td>总充电量</td><td>' + (data.total_amount || 0).toFixed(2) + ' 度</td></tr>';
+        html += '<tr><td>充电费</td><td>' + (data.total_charge_fee || 0).toFixed(2) + ' 元</td></tr>';
+        html += '<tr><td>服务费</td><td>' + (data.total_service_fee || 0).toFixed(2) + ' 元</td></tr>';
+        html += '<tr><td style="font-size:18px;font-weight:700;">总计</td><td style="font-size:18px;font-weight:700;color:#22c55e;">' + (data.total_bill_fee || 0).toFixed(2) + ' 元</td></tr>';
+        html += '</table>';
+        html += '<p style="font-size:12px;color:#94a3b8;">' + (data.message || '') + '</p>';
+        document.getElementById('billContent').innerHTML = '<h2>&#x1F4C4; ' + (data.is_finished ? '最终账单' : '实时累计费用') + '</h2>' + html;
+        document.getElementById('overlay').classList.add('show');
+    }
+
+    function closeBill() {
+        document.getElementById('overlay').classList.remove('show');
+    }
+
+    // 页面加载后自动开始轮询
+    document.getElementById('carId').addEventListener('input', function(){
+        if (this.value.trim()) startPolling();
+    });
+</script>
+
+</body>
+</html>

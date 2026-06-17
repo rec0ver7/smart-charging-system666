@@ -3,7 +3,7 @@ from django.db import transaction
 from django.utils import timezone
 from django.db.models import F
 from charging_system.models import CarState, ChargePile, BillRecord
-from charging_system.services.bill_service import calculate_phase_fee
+from charging_system.services.bill_service import calculate_phase_fee, TIME_SCALE
 
 QUEUE_MAX_LIMIT = 4  # 桩后方专属队列最大车位数
 
@@ -11,7 +11,7 @@ QUEUE_MAX_LIMIT = 4  # 桩后方专属队列最大车位数
 # =========================================================================
 # 组长负责：1. 核心请求接口与优先级入队调度算法
 # =========================================================================
-def E_chargingRequest(car_id: str, mode: str, request_amount: float, total_capacity: float) -> dict:
+def E_chargingRequest(car_id: str, mode: str, request_amount: float) -> dict:
     """
     【组长负责接口】：用户端车辆在总等候区发起充电请求的入口
     """
@@ -22,7 +22,6 @@ def E_chargingRequest(car_id: str, mode: str, request_amount: float, total_capac
                 defaults={
                     'mode': mode.upper(),
                     'request_amount': request_amount,
-                    'total_capacity': total_capacity,
                     'status': 'WAITING',
                     'total_fee': 0.0,
                     'charged_amount': 0.0
