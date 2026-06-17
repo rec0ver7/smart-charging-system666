@@ -19,7 +19,7 @@
 ### 3. 车辆指令与状态维护模块 —— 【组员 A、组员 B 协同】
 * **负责文件**：`charging_system/services/car_service.py`
 * **具体落实动作**：
-    * **组员 A**：编写 `Modify_Amount(car_id, new_amount)` 支持中途修改目标充电量；编写 `Modify_Mode(car_id, new_mode)` 支持中途切换快慢充模式。 —— **【🔴 暂未完成】**
+    * **组员 A**：编写 `Modify_Amount(car_id, new_amount)` 支持中途修改目标充电量；编写 `Modify_Mode(car_id, new_mode)` 支持中途切换快慢充模式。 —— **【🟢 100% 已完成】**
     * **组员 B**：编写 `Start_Charging(car_id)` 控制车辆上桩；编写 `End_Charging(car_id)` 实现充满或主动取消的停止逻辑与计费结算；编写 `Query_Charging_State(car_id)` 实时返回当前已充度数与瞬时费用。 —— **【🟢 100% 已完成】**
 
 ### 4. 充电桩管理与监控模块 —— 【组员 D、组员 E 协同】
