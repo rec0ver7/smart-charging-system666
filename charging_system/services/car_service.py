@@ -355,6 +355,11 @@ def Query_Charging_State(car_id: str) -> dict:
                     except ChargePile.DoesNotExist:
                         pass
 
+            # 防御：已完成但缺少 end_time 的旧数据，补全 end_time 防止时长一直增长
+            if car.status == 'FINISHED' and not car.end_time:
+                car.end_time = timezone.now()
+                car.save(update_fields=['end_time'])
+
             duration_minutes = 0.0
             if car.start_time:
                 end = car.end_time or timezone.now()
