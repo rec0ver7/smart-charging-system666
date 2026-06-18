@@ -135,6 +135,8 @@ def End_Charging(car_id: str) -> int:
             # 2. 修改车辆为完结状态
             car.status = 'FINISHED'
             car.end_time = now_time
+            car.pile = None
+            car.queue_index = 0
             car.save()
 
             # 3. 【核心联动】：如果该桩后方专属队列里还有车在排队，自动唤醒并调度下一个幸运儿上桩
