@@ -1,6 +1,6 @@
 from django.db import transaction
 from django.utils import timezone
-from charging_system.models import ChargePile, CarState
+from charging_system.models import ChargePile, CarState, BillRecord
 from charging_system.services.dispatch_service import priority_schedule
 from charging_system.services.car_service import calc_display_charge
 
@@ -231,6 +231,73 @@ def get_pile_parameters() -> dict:
     }
 
 
+def auto_tick_piles():
+    """
+    驱动模拟推进：遍历所有正在充电的桩，动态计算当前车是否已充满。
+    若已满则自动结算、释放桩、触发下一辆车入队。
+    管理端每次轮询时调用，保证队列持续流动。
+    """
+    from charging_system.services.bill_service import calculate_phase_fee
+    from charging_system.services.dispatch_service import time_slice_schedule
+
+    try:
+        with transaction.atomic():
+            charging_piles = ChargePile.objects.select_for_update().filter(status='CHARGING')
+            for pile in charging_piles:
+                if not pile.current_car_id:
+                    continue
+                try:
+                    car = CarState.objects.select_for_update().get(car_id=pile.current_car_id, status='CHARGING')
+                except CarState.DoesNotExist:
+                    continue
+
+                disp_charged, disp_fee = calc_display_charge(car)
+                if disp_charged < car.request_amount:
+                    continue  # 还没充满，跳过
+
+                # 充满：创建最后一段详单、更新车辆状态、释放桩
+                now_time = timezone.now()
+                if car.last_update_time:
+                    amt, c_fee, s_fee = calculate_phase_fee(car.last_update_time, now_time, car.mode)
+                    actual_amt = min(amt, car.request_amount - car.charged_amount)
+                    if actual_amt > 0:
+                        ratio = actual_amt / amt if amt > 0 else 1.0
+                        BillRecord.objects.create(
+                            car_id=car.car_id,
+                            pile_id=pile.pile_id,
+                            charge_amount=actual_amt,
+                            start_time=car.last_update_time,
+                            end_time=now_time,
+                            charge_duration_minutes=(now_time - car.last_update_time).total_seconds() * 60 / 3600,
+                            charge_fee=c_fee * ratio,
+                            service_fee=s_fee * ratio,
+                            total_fee=(c_fee + s_fee) * ratio
+                        )
+
+                if car.start_time:
+                    dur = (now_time - car.start_time).total_seconds() * 60 / 3600
+                    pile.total_charge_duration_minutes += dur
+                pile.total_charge_amount += car.charged_amount
+                pile.total_charge_times += 1
+
+                car.charged_amount = disp_charged
+                car.total_fee = disp_fee
+                car.status = 'FINISHED'
+                car.end_time = now_time
+                car.pile = None
+                car.queue_index = 0
+                car.save()
+
+                pile.current_car_id = None
+                pile.status = 'IDLE'
+                pile.save()
+
+                # 唤醒队列中下一辆车
+                time_slice_schedule(pile.pile_id)
+    except Exception:
+        pass  # tick 失败不阻塞查询
+
+
 def Query_PileState(pile_id: str = None) -> dict:
     """
     【组员E负责】：收集充电桩运行指标
@@ -280,6 +347,9 @@ def Query_PileState(pile_id: str = None) -> dict:
                 }
             }
         else:
+            # 先驱动一轮模拟推进，让充满的车自动出队、排队车上桩
+            auto_tick_piles()
+
             # 查询所有充电桩
             piles = ChargePile.objects.all()
             result = []
