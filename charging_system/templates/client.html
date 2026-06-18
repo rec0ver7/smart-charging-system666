@@ -130,6 +130,7 @@
 <div class="nav-links">
     <a href="/" class="active">车主端</a>
     <a href="/dashboard/">管理大屏</a>
+    <a href="#" id="installBtn" onclick="installApp();return false;" style="display:none;background:#22c55e;color:#000;">📲 安装App</a>
 </div>
 
 <div class="toast" id="toast"></div>
@@ -219,6 +220,40 @@
 <script>
     let pollingTimer = null;
     let lastStatus = null;
+    let deferredPrompt = null;
+
+    window.addEventListener('beforeinstallprompt', function(e) {
+        e.preventDefault();
+        deferredPrompt = e;
+        var btn = document.getElementById('installBtn');
+        if (btn) btn.style.display = 'inline-block';
+    });
+
+    window.addEventListener('appinstalled', function() {
+        var btn = document.getElementById('installBtn');
+        if (btn) btn.style.display = 'none';
+        deferredPrompt = null;
+        toast('App 安装成功！', true);
+    });
+
+    function installApp() {
+        if (!deferredPrompt) {
+            if (/iPhone|iPad|iPod/.test(navigator.userAgent)) {
+                alert('请点击浏览器底部 分享按钮 → 「添加到主屏幕」');
+            } else {
+                alert('请使用 Chrome 浏览器打开，点右上角菜单 → 「安装应用」');
+            }
+            return;
+        }
+        deferredPrompt.prompt();
+        deferredPrompt.userChoice.then(function(result) {
+            if (result.outcome === 'accepted') {
+                var btn = document.getElementById('installBtn');
+                if (btn) btn.style.display = 'none';
+            }
+            deferredPrompt = null;
+        });
+    }
 
     function apiUrl(path) {
         return '/api/' + path;
