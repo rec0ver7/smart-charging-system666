@@ -130,7 +130,7 @@
 <div class="nav-links">
     <a href="/" class="active">车主端</a>
     <a href="/dashboard/">管理大屏</a>
-    <a href="#" id="installBtn" onclick="installApp();return false;" style="display:none;background:#22c55e;color:#000;">📲 安装App</a>
+    <a href="#" id="installBtn" onclick="installApp();return false;" style="background:#22c55e;color:#000;">📲 安装App</a>
 </div>
 
 <div class="toast" id="toast"></div>
@@ -225,34 +225,32 @@
     window.addEventListener('beforeinstallprompt', function(e) {
         e.preventDefault();
         deferredPrompt = e;
-        var btn = document.getElementById('installBtn');
-        if (btn) btn.style.display = 'inline-block';
     });
 
     window.addEventListener('appinstalled', function() {
-        var btn = document.getElementById('installBtn');
-        if (btn) btn.style.display = 'none';
         deferredPrompt = null;
-        toast('App 安装成功！', true);
+        toast('安装成功！', true);
     });
 
     function installApp() {
-        if (!deferredPrompt) {
-            if (/iPhone|iPad|iPod/.test(navigator.userAgent)) {
-                alert('请点击浏览器底部 分享按钮 → 「添加到主屏幕」');
-            } else {
-                alert('请使用 Chrome 浏览器打开，点右上角菜单 → 「安装应用」');
-            }
+        // 优先使用原生 PWA 安装弹窗 (Chrome)
+        if (deferredPrompt) {
+            deferredPrompt.prompt();
+            deferredPrompt.userChoice.then(function(result) {
+                if (result.outcome === 'accepted') {
+                    toast('安装成功！', true);
+                }
+                deferredPrompt = null;
+            });
             return;
         }
-        deferredPrompt.prompt();
-        deferredPrompt.userChoice.then(function(result) {
-            if (result.outcome === 'accepted') {
-                var btn = document.getElementById('installBtn');
-                if (btn) btn.style.display = 'none';
-            }
-            deferredPrompt = null;
-        });
+
+        // 兜底：按设备给出清晰指引
+        var isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent);
+        var msg = isIOS
+            ? '📱 iPhone 安装步骤：\n\n1. 点底部中间的 分享按钮 (↑)\n2. 滑动找到「添加到主屏幕」\n3. 点右上角「添加」\n\n桌面会出现 App 图标，点击即可全屏使用！'
+            : '📱 Android 安装步骤：\n\n1. 请用 Chrome 浏览器打开此页面\n2. 点右上角 ⋮ 三个点\n3. 选择「安装应用」或「添加到主屏幕」\n\n桌面会出现 App 图标！';
+        alert(msg);
     }
 
     function apiUrl(path) {

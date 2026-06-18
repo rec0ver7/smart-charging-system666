@@ -115,6 +115,7 @@
 <div class="nav-links">
     <a href="/">车主端</a>
     <a href="/dashboard/" class="active">管理大屏</a>
+    <a href="#" id="installBtn" onclick="installApp();return false;" style="background:#22c55e;color:#000;">📲 安装App</a>
 </div>
 
 <h1>⚡ 智能充电桩调度系统</h1>
@@ -161,8 +162,29 @@
 
 <script>
     let pollingTimer = null;
-    let pileIds = [];           // 记录已渲染的桩ID顺序
-    let initialized = false;   // 是否已完成首次渲染
+    let pileIds = [];
+    let initialized = false;
+    let deferredPrompt = null;
+
+    window.addEventListener('beforeinstallprompt', function(e) {
+        e.preventDefault();
+        deferredPrompt = e;
+    });
+
+    function installApp() {
+        if (deferredPrompt) {
+            deferredPrompt.prompt();
+            deferredPrompt.userChoice.then(function(r) {
+                if (r.outcome === 'accepted') toast('安装成功！', true);
+                deferredPrompt = null;
+            });
+            return;
+        }
+        var isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent);
+        alert(isIOS
+            ? 'iPhone: 点底部 分享 → 「添加到主屏幕」'
+            : 'Android: 用 Chrome 打开 → 右上角 ⋮ → 「安装应用」');
+    }
 
     function apiUrl(path) {
         return '/api/' + path;
