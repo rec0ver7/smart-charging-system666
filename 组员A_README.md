@@ -38,6 +38,9 @@
 
 - `dispatch_service.py`: 修复了缺失的 `TIME_SCALE` 导入
 - `dispatch_service.py`: 修复了 `E_chargingRequest()` 中不存在的 `total_capacity` 字段
+- `car_service.py`: 修复 `Query_Charging_State()` 完成判断使用 DB 旧值而非动态计算值，导致单车上桩后永远无法自动完成
+- `car_service.py`: 提取 `calc_display_charge()` 公用函数，统一客户端和管理端的实时动态电量计算
+- `pile_service.py`: `Query_PileState()` / `Query_QueueState()` 改用动态计算电量，解决管理大屏显示滞后
 
 ## 如何运行
 

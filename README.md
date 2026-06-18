@@ -54,6 +54,9 @@
 - `dispatch_service.py`: 修复 `time_slice_schedule()` 中车辆达目标电量后仍被重新入队而非 FINISHED 的 bug
 - `dispatch_service.py`: 修复 `priority_schedule()` 和 `handle_pile_fault()` 中已充满车辆未自动结算的问题
 - `car_service.py`: 在 `Query_Charging_State()` 中增加已充满车辆的兜底自动完成逻辑
+- `car_service.py`: 修复 `Query_Charging_State()` 完成判断使用 DB 旧值 `charged_amount`（始终为 0）而非动态计算值，导致单车上桩后永远无法自动 FINISHED
+- `car_service.py`: 提取 `calc_display_charge()` 公用函数，统一客户端和管理端的实时动态电量计算
+- `pile_service.py`: `Query_PileState()` / `Query_QueueState()` 改用 `calc_display_charge()` 动态计算当前电量，解决管理大屏显示滞后于客户端的问题
 - `tests.py`: 编写 9 个测试用例覆盖充电完成自动结算、队列清理、时间不再增长等核心场景
 
 ---

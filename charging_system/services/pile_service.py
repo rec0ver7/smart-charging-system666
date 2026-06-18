@@ -2,6 +2,7 @@ from django.db import transaction
 from django.utils import timezone
 from charging_system.models import ChargePile, CarState
 from charging_system.services.dispatch_service import priority_schedule
+from charging_system.services.car_service import calc_display_charge
 
 # 全局电价参数（支持运行时动态调整）
 PEAK_HOURS = [(10, 15), (18, 21)]       # 峰时时段
@@ -244,21 +245,22 @@ def Query_PileState(pile_id: str = None) -> dict:
             except ChargePile.DoesNotExist:
                 return {"success": False, "message": f"充电桩 {pile_id} 不存在"}
             
-            # 获取当前正在充电的车辆信息
+            # 获取当前正在充电的车辆信息（动态计算实时电量）
             current_car_info = None
             if pile.current_car_id:
                 try:
                     car = CarState.objects.get(car_id=pile.current_car_id)
+                    disp_charged, disp_fee = calc_display_charge(car)
                     current_car_info = {
                         "car_id": car.car_id,
                         "mode": car.mode,
-                        "charged_amount": round(car.charged_amount, 2),
+                        "charged_amount": disp_charged,
                         "request_amount": round(car.request_amount, 2),
-                        "total_fee": round(car.total_fee, 2)
+                        "total_fee": disp_fee
                     }
                 except CarState.DoesNotExist:
                     pass
-            
+
             return {
                 "success": True,
                 "pile_id": pile.pile_id,
@@ -287,12 +289,13 @@ def Query_PileState(pile_id: str = None) -> dict:
                 if pile.current_car_id:
                     try:
                         car = CarState.objects.get(car_id=pile.current_car_id)
+                        disp_charged, disp_fee = calc_display_charge(car)
                         current_car_info = {
                             "car_id": car.car_id,
                             "mode": car.mode,
-                            "charged_amount": round(car.charged_amount, 2),
+                            "charged_amount": disp_charged,
                             "request_amount": round(car.request_amount, 2),
-                            "total_fee": round(car.total_fee, 2)
+                            "total_fee": disp_fee
                         }
                     except CarState.DoesNotExist:
                         pass
@@ -351,19 +354,20 @@ def Query_QueueState(pile_id: str) -> dict:
                 "estimated_wait_minutes": car.queue_index * 30  # 预估等待时间（假设每车平均充电30分钟）
             })
         
-        # 获取当前正在充电的车辆
+        # 获取当前正在充电的车辆（动态计算实时电量）
         current_car_info = None
         if pile.current_car_id:
             try:
                 car = CarState.objects.get(car_id=pile.current_car_id)
+                disp_charged, disp_fee = calc_display_charge(car)
                 current_car_info = {
                     "car_id": car.car_id,
                     "mode": car.mode,
                     "mode_display": car.get_mode_display(),
                     "request_amount": round(car.request_amount, 2),
-                    "charged_amount": round(car.charged_amount, 2),
-                    "remaining_amount": round(max(car.request_amount - car.charged_amount, 0), 2),
-                    "total_fee": round(car.total_fee, 2),
+                    "charged_amount": disp_charged,
+                    "remaining_amount": round(max(car.request_amount - disp_charged, 0), 2),
+                    "total_fee": disp_fee,
                     "start_time": car.start_time.strftime("%Y-%m-%d %H:%M:%S") if car.start_time else None
                 }
             except CarState.DoesNotExist:

@@ -13,6 +13,24 @@ TRICKLE_RATE = 10.0     # 慢充速度：10度/小时
 SERVICE_FEE_RATE = 0.8  # 固定服务费：0.8元/度
 
 
+def calc_display_charge(car) -> tuple:
+    """
+    根据数据库状态 + 时间差动态计算当前实时电量和费用。
+    返回 (display_charged, current_total_fee)，不修改数据库。
+    """
+    display_charged = car.charged_amount
+    current_total_fee = car.total_fee
+    if car.status == 'CHARGING' and car.last_update_time:
+        from django.utils import timezone
+        amt, c_fee, s_fee = calculate_phase_fee(car.last_update_time, timezone.now(), car.mode)
+        actual_amt = min(amt, car.request_amount - car.charged_amount)
+        if actual_amt > 0:
+            ratio = actual_amt / amt if amt > 0 else 1.0
+            display_charged += actual_amt
+            current_total_fee += (c_fee + s_fee) * ratio
+    return round(display_charged, 2), round(current_total_fee, 2)
+
+
 def Start_Charging(car_id: str) -> int:
     """
     【组员B负责接口】：控制车辆正式启动充电。
@@ -311,14 +329,15 @@ def Query_Charging_State(car_id: str) -> dict:
             except CarState.DoesNotExist:
                 return {"success": False, "message": f"车辆 {car_id} 不存在"}
 
-            # 如果处于正在充电状态，根据时间差动态预估当前秒级跳动的电量（提升用户体验展示）
-            current_total_fee = car.total_fee
-            display_charged = car.charged_amount
-            
-            # 安全兜底：如果已充 >= 请求量，自动判定为充电完成
-            if car.status in ('CHARGING', 'QUEUEING') and car.charged_amount >= car.request_amount:
+            # 动态计算当前实时电量与费用
+            display_charged, current_total_fee = calc_display_charge(car)
+
+            # 安全兜底：用动态计算后的电量判断是否已充满，充满则自动完结并持久化
+            if car.status in ('CHARGING', 'QUEUEING') and display_charged >= car.request_amount:
                 now_time = timezone.now()
                 old_pile = car.pile
+                car.charged_amount = display_charged
+                car.total_fee = current_total_fee
                 car.status = 'FINISHED'
                 car.end_time = now_time
                 car.pile = None
@@ -335,15 +354,6 @@ def Query_Charging_State(car_id: str) -> dict:
                             time_slice_schedule(pile.pile_id)
                     except ChargePile.DoesNotExist:
                         pass
-
-            if car.status == 'CHARGING' and car.last_update_time:
-                now_time = timezone.now()
-                amt, c_fee, s_fee = calculate_phase_fee(car.last_update_time, now_time, car.mode)
-                actual_amt = min(amt, car.request_amount - car.charged_amount)
-                if actual_amt > 0:
-                    ratio = actual_amt / amt if amt > 0 else 1.0
-                    display_charged += actual_amt
-                    current_total_fee += (c_fee + s_fee) * ratio
 
             duration_minutes = 0.0
             if car.start_time:
