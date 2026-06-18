@@ -27,11 +27,9 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-    
-    # 🌟 1. 允许跨域中间件组件（组员 E & A 写完前端后和后端联调必须用到）
+
     'corsheaders',
-    
-    # 🌟 2. 注册你们的核心系统子模块应用，这样 Django 就能识别到你的 models.py 了！
+    'sslserver',     # HTTPS 自签证书，手机 PWA 安装需要
     'charging_system',
 ]
 
