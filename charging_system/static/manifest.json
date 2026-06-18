@@ -1,0 +1,18 @@
+{
+  "name": "智能充电桩调度系统",
+  "short_name": "充电调度",
+  "description": "智能充电桩调度与计费管理平台",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#020617",
+  "theme_color": "#38bdf8",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/static/icon.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
