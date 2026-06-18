@@ -238,11 +238,12 @@ def auto_tick_piles():
     管理端每次轮询时调用，保证队列持续流动。
     """
     from charging_system.services.bill_service import calculate_phase_fee, TIME_SCALE
-    from charging_system.services.dispatch_service import time_slice_schedule
+    from charging_system.services.dispatch_service import time_slice_schedule, priority_schedule
 
     try:
         with transaction.atomic():
             charging_piles = ChargePile.objects.select_for_update().filter(status='CHARGING')
+            freed_any = False
             for pile in charging_piles:
                 if not pile.current_car_id:
                     continue
@@ -294,6 +295,15 @@ def auto_tick_piles():
 
                 # 唤醒队列中下一辆车
                 time_slice_schedule(pile.pile_id)
+                freed_any = True
+
+            # FAULT_WAITING 恢复：有空闲桩时重试故障等待车辆
+            if freed_any:
+                fault_cars = CarState.objects.select_for_update().filter(
+                    status='FAULT_WAITING'
+                ).order_by('request_time')
+                for fc in fault_cars:
+                    priority_schedule(fc.car_id)
     except Exception:
         pass  # tick 失败不阻塞查询
 

@@ -218,7 +218,8 @@ def time_order_schedule() -> dict:
                 if best_pile:
                     # 调入该充电桩队列
                     car.pile = best_pile
-                    if best_pile.status == 'IDLE' and min_queue == 0:
+                    actual_q_len = best_pile.cars_in_queue.filter(status='QUEUEING').count()
+                    if best_pile.status == 'IDLE' and actual_q_len == 0:
                         car.status = 'CHARGING'
                         car.start_time = timezone.now()
                         car.last_update_time = timezone.now()
@@ -228,7 +229,7 @@ def time_order_schedule() -> dict:
                         best_pile.save()
                     else:
                         car.status = 'QUEUEING'
-                        car.queue_index = min_queue + 1
+                        car.queue_index = actual_q_len + 1
                     car.save()
                     dispatched_count += 1
                     
