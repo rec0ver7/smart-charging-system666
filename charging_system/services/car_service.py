@@ -315,6 +315,27 @@ def Query_Charging_State(car_id: str) -> dict:
             current_total_fee = car.total_fee
             display_charged = car.charged_amount
             
+            # 安全兜底：如果已充 >= 请求量，自动判定为充电完成
+            if car.status in ('CHARGING', 'QUEUEING') and car.charged_amount >= car.request_amount:
+                now_time = timezone.now()
+                old_pile = car.pile
+                car.status = 'FINISHED'
+                car.end_time = now_time
+                car.pile = None
+                car.queue_index = 0
+                car.save()
+                if old_pile:
+                    try:
+                        pile = ChargePile.objects.select_for_update().get(pile_id=old_pile.pile_id)
+                        if pile.current_car_id == car_id:
+                            pile.current_car_id = None
+                            pile.status = 'IDLE'
+                            pile.save()
+                            from charging_system.services.dispatch_service import time_slice_schedule
+                            time_slice_schedule(pile.pile_id)
+                    except ChargePile.DoesNotExist:
+                        pass
+
             if car.status == 'CHARGING' and car.last_update_time:
                 now_time = timezone.now()
                 amt, c_fee, s_fee = calculate_phase_fee(car.last_update_time, now_time, car.mode)

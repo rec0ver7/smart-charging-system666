@@ -52,6 +52,16 @@ def priority_schedule(car_id: str) -> dict:
     try:
         with transaction.atomic():
             car = CarState.objects.select_for_update().get(car_id=car_id)
+
+            # 安全兜底：已充满的车不应再入队
+            if car.charged_amount >= car.request_amount:
+                car.status = 'FINISHED'
+                car.end_time = timezone.now()
+                car.pile = None
+                car.queue_index = 0
+                car.save()
+                return {"success": True, "action": "FINISHED", "message": "车辆已充满，自动结算完成"}
+
             candidates = ChargePile.objects.select_for_update().filter(
                 mode=car.mode, status__in=['IDLE', 'CHARGING']
             )
@@ -141,13 +151,21 @@ def time_slice_schedule(pile_id: str) -> dict:
                             )
                             old_car.charged_amount += actual_amt
                             old_car.total_fee += (c_fee + s_fee) * ratio
-                        
-                        # 挪到队尾
-                        old_car.status = 'QUEUEING'
-                        current_max_index = pile.cars_in_queue.filter(status='QUEUEING').count()
-                        old_car.queue_index = current_max_index + 1
-                        old_car.request_time = now_time
-                        old_car.save()
+
+                        # 检查是否已达目标电量，如果充满则结算移出系统
+                        if old_car.charged_amount >= old_car.request_amount:
+                            old_car.status = 'FINISHED'
+                            old_car.end_time = now_time
+                            old_car.pile = None
+                            old_car.queue_index = 0
+                            old_car.save()
+                        else:
+                            # 挪到队尾
+                            old_car.status = 'QUEUEING'
+                            current_max_index = pile.cars_in_queue.filter(status='QUEUEING').count()
+                            old_car.queue_index = current_max_index + 1
+                            old_car.request_time = now_time
+                            old_car.save()
                         
                         pile.total_charge_amount += actual_amt
                 except CarState.DoesNotExist:
@@ -259,16 +277,29 @@ def handle_pile_fault(fault_pile_id: str) -> dict:
                             )
                             old_car.charged_amount += actual_amt
                             old_car.total_fee += (c_fee + s_fee) * ratio
-                        old_car.status = 'FAULT_WAITING'
+                        # 如果已充满足够电量，直接结算完成
+                        if old_car.charged_amount >= old_car.request_amount:
+                            old_car.status = 'FINISHED'
+                            old_car.end_time = now_time
+                        else:
+                            old_car.status = 'FAULT_WAITING'
                         old_car.pile = None
                         old_car.queue_index = 0
                         old_car.save()
                 except CarState.DoesNotExist:
                     pass
-            
+
             # 2. 提取排队车辆
             queue_cars = fault_pile.cars_in_queue.filter(status='QUEUEING').order_by('queue_index')
             for car in queue_cars:
+                # 若排队车已充满（兜底），直接结算移出
+                if car.charged_amount >= car.request_amount:
+                    car.status = 'FINISHED'
+                    car.end_time = timezone.now()
+                    car.pile = None
+                    car.queue_index = 0
+                    car.save()
+                    continue
                 affected_car_ids.append(car.car_id)
                 car.status = 'FAULT_WAITING'
                 car.pile = None
