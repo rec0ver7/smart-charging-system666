@@ -30,7 +30,7 @@
 
         .badge {
             display: inline-block; padding: 4px 12px; border-radius: 20px;
-            font-size: 12px; font-weight: 600;
+            font-size: 12px; font-weight: 600; min-width: 52px;
         }
         .badge-idle { background: #22c55e; color: #000; }
         .badge-charging { background: #0ea5e9; color: #fff; }
@@ -153,6 +153,8 @@
 
 <script>
     let pollingTimer = null;
+    let pileIds = [];           // 记录已渲染的桩ID顺序
+    let initialized = false;   // 是否已完成首次渲染
 
     function apiUrl(path) {
         return '/api/' + path;
@@ -165,74 +167,88 @@
         setTimeout(function(){ t.className = 'toast'; }, 3000);
     }
 
-    function renderPileTable(data) {
-        var tbody = document.getElementById('pileTable').getElementsByTagName('tbody')[0];
-        tbody.innerHTML = '';
+    // ---------- 资产看板：只更新文字 ----------
+    function updatePileTable(data) {
+        if (!data.success || !data.piles) return;
 
-        if (!data.success || !data.piles || data.piles.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="6" class="empty">暂无充电桩数据</td></tr>';
-            return;
+        var currentIds = data.piles.map(function(p) { return p.pile_id; });
+        var needRebuild = !initialized || JSON.stringify(currentIds) !== JSON.stringify(pileIds);
+
+        if (needRebuild) {
+            // 首次或桩列表变化时才重建 DOM
+            var tbody = document.getElementById('pileTable').getElementsByTagName('tbody')[0];
+            tbody.innerHTML = '';
+            pileIds = [];
+
+            data.piles.forEach(function(pile) {
+                pileIds.push(pile.pile_id);
+
+                var row = document.createElement('tr');
+                row.innerHTML =
+                    '<td style="font-weight:600;color:#38bdf8;">' + pile.pile_id + '</td>' +
+                    '<td><span id="pmode-' + pile.pile_id + '"></span></td>' +
+                    '<td><span id="pstatus-' + pile.pile_id + '" class="badge"></span></td>' +
+                    '<td><span id="pcar-' + pile.pile_id + '">--</span></td>' +
+                    '<td><span id="pamount-' + pile.pile_id + '">0</span>度</td>' +
+                    '<td><button id="pbtn-' + pile.pile_id + '" class="btn-fault" onclick="handlePileAction(\'' + pile.pile_id + '\')"></button></td>';
+                tbody.appendChild(row);
+            });
+            initialized = true;
         }
 
+        // 只更新文字内容（不重建 DOM）
         data.piles.forEach(function(pile) {
+            var modeEl = document.getElementById('pmode-' + pile.pile_id);
+            var statusEl = document.getElementById('pstatus-' + pile.pile_id);
+            var carEl = document.getElementById('pcar-' + pile.pile_id);
+            var amountEl = document.getElementById('pamount-' + pile.pile_id);
+            var btnEl = document.getElementById('pbtn-' + pile.pile_id);
+            if (!modeEl) return;
+
+            // 类型
             var modeText = pile.mode === 'F' ? '快充' : '慢充';
             var modeClass = pile.mode === 'F' ? 'mode-f' : 'mode-t';
-            var statusClass = pile.status === 'IDLE' ? 'badge-idle' : (pile.status === 'CHARGING' ? 'badge-charging' : 'badge-fault');
-            var statusText = pile.status === 'IDLE' ? '空闲' : (pile.status === 'CHARGING' ? '充电中' : '故障');
-            var currentCar = pile.current_car ? pile.current_car.car_id : '--';
-            var btnClass = pile.status === 'FAULT' ? 'btn-recover' : 'btn-fault';
-            var btnText = pile.status === 'FAULT' ? '恢复' : '模拟故障';
-            var btnAction = pile.status === 'FAULT' ? 'recover' : 'fault';
+            modeEl.textContent = modeText;
+            modeEl.className = modeClass;
 
-            var row = document.createElement('tr');
-            row.innerHTML = `
-                <td style="font-weight:600;color:#38bdf8;">${pile.pile_id}</td>
-                <td><span class="${modeClass}">${modeText}</span></td>
-                <td><span class="badge ${statusClass}">${statusText}</span></td>
-                <td>${currentCar}</td>
-                <td>${pile.metrics.total_charge_amount || 0}度</td>
-                <td><button class="btn-fault ${btnClass}" onclick="handlePileAction('${pile.pile_id}', '${btnAction}')">${btnText}</button></td>
-            `;
-            tbody.appendChild(row);
+            // 状态
+            var statusMap = { 'IDLE': ['空闲', 'badge-idle'], 'CHARGING': ['充电中', 'badge-charging'], 'FAULT': ['故障', 'badge-fault'] };
+            var s = statusMap[pile.status] || ['未知', ''];
+            statusEl.textContent = s[0];
+            statusEl.className = 'badge ' + s[1];
+
+            // 当前车辆
+            carEl.textContent = pile.current_car ? pile.current_car.car_id : '--';
+
+            // 累计充电量
+            amountEl.textContent = (pile.metrics.total_charge_amount || 0);
+
+            // 按钮
+            var isFault = pile.status === 'FAULT';
+            btnEl.textContent = isFault ? '恢复' : '模拟故障';
+            btnEl.className = 'btn-fault' + (isFault ? ' btn-recover' : '');
+            btnEl.setAttribute('onclick', 'handlePileAction(\'' + pile.pile_id + '\', \'' + (isFault ? 'recover' : 'fault') + '\')');
         });
     }
 
-    function renderQueueTable(data) {
-        var tbody = document.getElementById('queueTable').getElementsByTagName('tbody')[0];
-        tbody.innerHTML = '';
-
-        if (!data.success || !data.piles || data.piles.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="5" class="empty">暂无队列数据</td></tr>';
-            return;
-        }
+    // ---------- 排队详情：只更新文字 ----------
+    function updateQueueTable(data) {
+        if (!data.success || !data.piles) return;
 
         data.piles.forEach(function(pile) {
-            var modeText = pile.mode === 'F' ? '快充' : '慢充';
-            var modeClass = pile.mode === 'F' ? 'mode-f' : 'mode-t';
-            var currentCar = pile.current_car ? pile.current_car.car_id : '--';
-
-            var queueHtml = '';
-            if (pile.metrics && pile.metrics.queue_length > 0) {
-                queueHtml = '<div style="min-height:28px;">';
-                for (var i = 1; i <= 4; i++) {
-                    queueHtml += `<div class="queue-item">空位 ${i}</div>`;
-                }
-                queueHtml += '</div>';
-            } else {
-                queueHtml = '<span class="empty">无排队车辆</span>';
+            // 当前充电列
+            var curEl = document.getElementById('qcur-' + pile.pile_id);
+            if (curEl) {
+                curEl.textContent = pile.current_car ? pile.current_car.car_id : '--';
             }
-
-            var row = document.createElement('tr');
-            row.innerHTML = `
-                <td style="font-weight:600;color:#38bdf8;">${pile.pile_id}</td>
-                <td><span class="${modeClass}">${modeText}</span></td>
-                <td>${currentCar}</td>
-                <td id="queue-${pile.pile_id}">${queueHtml}</td>
-                <td>${pile.metrics ? pile.metrics.queue_length : 0}/4</td>
-            `;
-            tbody.appendChild(row);
+            // 队列长度列
+            var lenEl = document.getElementById('qlen-' + pile.pile_id);
+            if (lenEl) {
+                lenEl.textContent = (pile.metrics ? pile.metrics.queue_length : 0) + '/4';
+            }
         });
 
+        // 异步加载每个桩的详细队列
         data.piles.forEach(function(pile) {
             loadQueueDetail(pile.pile_id);
         });
@@ -244,30 +260,43 @@
                 var d = r.data;
                 if (!d.success) return;
 
+                // 更新当前充电文字
+                var curEl = document.getElementById('qcur-' + pile_id);
+                if (curEl) {
+                    curEl.textContent = d.current_car ? d.current_car.car_id : '--';
+                }
+                // 更新队列长度
+                var lenEl = document.getElementById('qlen-' + pile_id);
+                if (lenEl) {
+                    lenEl.textContent = (d.queue_list ? d.queue_list.length : 0) + '/4';
+                }
+
+                // 更新排队车辆列表
                 var container = document.getElementById('queue-' + pile_id);
                 if (!container) return;
 
                 var html = '';
                 if (d.current_car) {
-                    html += `<div class="queue-item current">🚗 ${d.current_car.car_id}</div>`;
+                    html += '<div class="queue-item current">🚗 ' + d.current_car.car_id + '</div>';
                 }
-
                 if (d.queue_list && d.queue_list.length > 0) {
                     d.queue_list.forEach(function(car) {
-                        html += `<div class="queue-item">${car.car_id}</div>`;
+                        html += '<div class="queue-item">' + car.car_id + '</div>';
                     });
                 }
-
-                var remaining = 4 - (d.current_car ? 1 : 0) - (d.queue_list ? d.queue_list.length : 0);
-                for (var i = 0; i < remaining; i++) {
-                    html += `<div class="queue-item" style="opacity:0.3;">空位</div>`;
+                var used = (d.current_car ? 1 : 0) + (d.queue_list ? d.queue_list.length : 0);
+                for (var i = used; i < 4; i++) {
+                    html += '<div class="queue-item" style="opacity:0.3;">空位</div>';
                 }
-
-                if (!d.current_car && (!d.queue_list || d.queue_list.length === 0)) {
+                if (used === 0) {
                     html = '<span class="empty">无排队车辆</span>';
                 }
 
-                container.innerHTML = html;
+                // 只在内容变化时更新 DOM
+                if (container.dataset.lastHtml !== html) {
+                    container.dataset.lastHtml = html;
+                    container.innerHTML = html;
+                }
             })
             .catch(function(e) { console.error(e); });
     }
@@ -278,7 +307,7 @@
             .then(function(r) {
                 var d = r.data;
                 if (d.success) {
-                    toast((action === 'fault' ? '故障模拟成功！' : '恢复成功！') + d.message, true);
+                    toast((action === 'fault' ? '故障模拟成功！' : '恢复成功！'), true);
                 } else {
                     toast(d.message || '操作失败', false);
                 }
@@ -287,22 +316,47 @@
             .catch(function(e) { toast('网络错误', false); });
     }
 
+    // 构建排队表格骨架（只执行一次）
+    function buildQueueSkeleton(piles) {
+        var tbody = document.getElementById('queueTable').getElementsByTagName('tbody')[0];
+        // 只在首次构建
+        var existingIds = {};
+        var rows = tbody.querySelectorAll('tr');
+        rows.forEach(function(row) {
+            var firstCell = row.querySelector('td');
+            if (firstCell) existingIds[firstCell.textContent] = true;
+        });
+
+        piles.forEach(function(pile) {
+            if (existingIds[pile.pile_id]) return; // 已存在，跳过
+
+            var modeText = pile.mode === 'F' ? '快充' : '慢充';
+            var modeClass = pile.mode === 'F' ? 'mode-f' : 'mode-t';
+
+            var row = document.createElement('tr');
+            row.innerHTML =
+                '<td style="font-weight:600;color:#38bdf8;">' + pile.pile_id + '</td>' +
+                '<td><span id="qmode-' + pile.pile_id + '" class="' + modeClass + '">' + modeText + '</span></td>' +
+                '<td><span id="qcur-' + pile.pile_id + '">--</span></td>' +
+                '<td id="queue-' + pile.pile_id + '"><span class="empty">加载中...</span></td>' +
+                '<td><span id="qlen-' + pile.pile_id + '">0/4</span></td>';
+            tbody.appendChild(row);
+        });
+    }
+
     function loadAllData() {
         axios.get(apiUrl('query_pile_state'))
             .then(function(r) {
-                renderPileTable(r.data);
-                renderQueueTable(r.data);
+                buildQueueSkeleton(r.data.piles || []);
+                updatePileTable(r.data);
+                updateQueueTable(r.data);
             })
             .catch(function(e) { console.error(e); });
     }
 
-    function startPolling() {
-        if (pollingTimer) clearInterval(pollingTimer);
-        pollingTimer = setInterval(loadAllData, 1000);
-        loadAllData();
-    }
-
-    startPolling();
+    // 首次加载立即执行，之后每 5 秒刷新数据（只更新文字，不动结构）
+    loadAllData();
+    pollingTimer = setInterval(loadAllData, 5000);
 </script>
 </body>
 </html>
