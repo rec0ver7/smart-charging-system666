@@ -237,7 +237,7 @@ def auto_tick_piles():
     若已满则自动结算、释放桩、触发下一辆车入队。
     管理端每次轮询时调用，保证队列持续流动。
     """
-    from charging_system.services.bill_service import calculate_phase_fee
+    from charging_system.services.bill_service import calculate_phase_fee, TIME_SCALE
     from charging_system.services.dispatch_service import time_slice_schedule
 
     try:
@@ -268,14 +268,14 @@ def auto_tick_piles():
                             charge_amount=actual_amt,
                             start_time=car.last_update_time,
                             end_time=now_time,
-                            charge_duration_minutes=(now_time - car.last_update_time).total_seconds() * 60 / 3600,
+                            charge_duration_minutes=(now_time - car.last_update_time).total_seconds() * TIME_SCALE / 60,
                             charge_fee=c_fee * ratio,
                             service_fee=s_fee * ratio,
                             total_fee=(c_fee + s_fee) * ratio
                         )
 
                 if car.start_time:
-                    dur = (now_time - car.start_time).total_seconds() * 60 / 3600
+                    dur = (now_time - car.start_time).total_seconds() * TIME_SCALE / 60
                     pile.total_charge_duration_minutes += dur
                 pile.total_charge_amount += car.charged_amount
                 pile.total_charge_times += 1

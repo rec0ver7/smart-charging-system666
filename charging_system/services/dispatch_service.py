@@ -146,7 +146,7 @@ def time_slice_schedule(pile_id: str) -> dict:
                             BillRecord.objects.create(
                                 car_id=old_car_id, pile_id=pile_id, charge_amount=actual_amt,
                                 start_time=old_car.last_update_time, end_time=now_time,
-                                charge_duration_minutes=(now_time - old_car.last_update_time).total_seconds() * 60 / 3600, # 配合模拟系数
+                                charge_duration_minutes=(now_time - old_car.last_update_time).total_seconds() * TIME_SCALE / 60,
                                 charge_fee=c_fee * ratio, service_fee=s_fee * ratio, total_fee=(c_fee + s_fee) * ratio
                             )
                             old_car.charged_amount += actual_amt
@@ -160,10 +160,10 @@ def time_slice_schedule(pile_id: str) -> dict:
                             old_car.queue_index = 0
                             old_car.save()
                         else:
-                            # 挪到队尾
+                            # 挪到队尾（排除即将上桩的 next_car，避免多数一位）
                             old_car.status = 'QUEUEING'
-                            current_max_index = pile.cars_in_queue.filter(status='QUEUEING').count()
-                            old_car.queue_index = current_max_index + 1
+                            other_count = pile.cars_in_queue.filter(status='QUEUEING').exclude(car_id=next_car.car_id).count()
+                            old_car.queue_index = other_count + 1
                             old_car.request_time = now_time
                             old_car.save()
                         
